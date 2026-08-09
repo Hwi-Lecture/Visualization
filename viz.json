@@ -1,1 +1,12 @@
-[]
+[
+  {
+    "title": "LLM은 어떻게 다음 단어를 고를까?",
+    "description": "다음에 올 단어의 확률을 보고 하나를 뽑는 과정. 온도(temperature)를 바꾸면 왜 답이 달라지는지 확인할 수 있습니다.",
+    "path": "viz/next-token/index.html"
+  },
+  {
+    "title": "LLM은 어떻게 배울까?",
+    "description": "브라우저에서 진짜로 학습되는 초소형 언어 모델. 헛소리가 문장이 되기까지 loss가 내려가는 과정을 봅니다.",
+    "path": "viz/llm-training/index.html"
+  }
+]

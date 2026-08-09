@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLM은 어떻게 다음 단어를 고를까? - 강의 시각화 자료실</title>
+<link rel="stylesheet" href="../../common/style.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+<style>
+  /* 강의실 프로젝터 기준으로 글씨를 크게 잡는다 */
+  body { max-width: 1180px; }
+
+  .viz-root {
+    --series-1: #2a78d6;   /* 확률 막대 */
+    --series-2: #eb6834;   /* 뽑힌 단어 */
+    --muted-ink: #898781;
+    --gridline: #e1e0d9;
+    --tail-ink: #b9b8b2;
+  }
+
+  /* ── 문장 영역 ───────────────────────────────────────── */
+  .sentence {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    min-height: 84px;
+    padding: 18px 20px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: #fafafa;
+  }
+
+  .chip {
+    font-size: 1.7rem;
+    line-height: 1.25;
+    padding: 4px 12px;
+    border-radius: 8px;
+    background: #ffffff;
+    border: 1px solid var(--border);
+  }
+
+  .chip.fresh {
+    border-color: var(--series-2);
+    color: var(--series-2);
+    animation: pop 0.45s ease-out;
+  }
+
+  @keyframes pop {
+    0%   { transform: translateY(-14px) scale(0.85); opacity: 0; }
+    60%  { transform: translateY(0) scale(1.06); opacity: 1; }
+    100% { transform: translateY(0) scale(1); }
+  }
+
+  .chip.blank {
+    border-style: dashed;
+    color: var(--muted-ink);
+    min-width: 66px;
+    text-align: center;
+  }
+
+  .sentence-done {
+    font-size: 1rem;
+    color: var(--muted-ink);
+    padding-left: 4px;
+  }
+
+  /* ── 확률 막대 ───────────────────────────────────────── */
+  .bars { padding: 8px 20px 20px; }
+
+  .bar-row {
+    display: grid;
+    grid-template-columns: 190px 1fr 92px;
+    align-items: center;
+    gap: 14px;
+    height: 44px;
+  }
+
+  .bar-word {
+    font-size: 1.35rem;
+    text-align: right;
+    font-family: "SFMono-Regular", Consolas, monospace;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .bar-track { height: 26px; position: relative; }
+
+  .bar-fill {
+    height: 100%;
+    background: var(--series-1);
+    border-radius: 0 4px 4px 0;   /* 데이터 끝만 둥글게, 기준선 쪽은 각지게 */
+    transition: width 0.3s ease-out, background 0.2s;
+    min-width: 2px;
+  }
+
+  .bar-pct {
+    font-size: 1.2rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+  }
+
+  /* 뽑힌 단어 강조 — 색만으로 구분하지 않도록 화살표 표시를 같이 붙인다 */
+  .bar-row.picked .bar-fill { background: var(--series-2); }
+  .bar-row.picked .bar-word { color: var(--series-2); font-weight: 700; }
+  .bar-row.picked .bar-word::after { content: " ◀"; font-size: 0.9rem; }
+
+  .bar-row.tail .bar-word,
+  .bar-row.tail .bar-pct { color: var(--tail-ink); font-style: italic; }
+  .bar-row.tail .bar-fill { background: var(--tail-ink); }
+  .bar-row.tail .bar-word { font-family: inherit; font-size: 1.05rem; font-style: normal; }
+
+  .bar-row.dropped { opacity: 0.28; }
+  .bar-row.dropped .bar-fill { background: var(--gridline); }
+
+  /* ── 룰렛 ────────────────────────────────────────────── */
+  .roulette-wrap { padding: 0 20px 18px; }
+
+  .roulette-label {
+    font-size: 0.9rem;
+    color: var(--muted-ink);
+    margin-bottom: 6px;
+  }
+
+  /* 바늘이 잘리지 않도록 clip은 안쪽 track에만 건다 */
+  .roulette { position: relative; height: 34px; }
+
+  .roulette-track {
+    display: flex;
+    height: 100%;
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--gridline);
+  }
+
+  .roulette-seg { height: 100%; border-right: 2px solid #ffffff; }
+
+  .roulette-needle {
+    position: absolute;
+    top: -7px;
+    bottom: -7px;
+    width: 3px;
+    background: var(--text);
+    border-radius: 2px;
+    left: 0;
+    opacity: 0;
+    transform: translateX(-50%);
+  }
+
+  .roulette-needle.armed { opacity: 1; transition: left 1.1s cubic-bezier(0.16, 0.9, 0.3, 1); }
+
+  /* ── 컨트롤 ──────────────────────────────────────────── */
+  .controls button {
+    font-size: 1rem;
+    padding: 9px 16px;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: #ffffff;
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  .controls button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .controls button:disabled { opacity: 0.4; cursor: default; }
+
+  .controls button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #ffffff;
+    font-weight: 600;
+  }
+
+  .controls button.primary:hover:not(:disabled) { background: #1f5590; color: #ffffff; }
+
+  .slider-group { display: flex; align-items: center; gap: 10px; }
+  .slider-group input[type="range"] { width: 190px; }
+
+  .slider-value {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: var(--text);
+    min-width: 34px;
+  }
+
+  .temp-hint { font-size: 0.85rem; color: var(--muted-ink); }
+
+  select { font-size: 1rem; padding: 7px 10px; border-radius: 7px; border: 1px solid var(--border); }
+
+  /* ── 접어두는 상세 설명 ──────────────────────────────── */
+  details.more {
+    margin-top: 22px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    background: #fafafa;
+  }
+
+  details.more summary { cursor: pointer; font-weight: 600; color: var(--accent); }
+  details.more .inner { padding-top: 12px; font-size: 0.95rem; }
+  details.more label { display: inline-flex; align-items: center; gap: 8px; margin-right: 22px; }
+
+  table.dist-table { border-collapse: collapse; margin-top: 14px; font-size: 0.9rem; width: 100%; }
+  table.dist-table th, table.dist-table td { border: 1px solid var(--border); padding: 5px 10px; text-align: right; }
+  table.dist-table th { background: #f0efec; }
+  table.dist-table td:first-child, table.dist-table th:first-child { text-align: left; font-family: "SFMono-Regular", Consolas, monospace; }
+</style>
+</head>
+<body>
+  <div id="viz-nav"></div>
+
+  <h1>LLM은 어떻게 다음 단어를 고를까?</h1>
+  <p>
+    챗봇은 문장을 통째로 생각해내지 않습니다. <strong>다음에 올 단어 하나</strong>를 확률로 고르고,
+    그걸 문장 뒤에 붙인 다음, 다시 처음부터 반복할 뿐입니다.
+  </p>
+
+  <div class="viz-root">
+    <div class="controls">
+      <select id="prompt-select" aria-label="시작 문장"></select>
+      <button id="btn-step" class="primary">다음 단어 뽑기</button>
+      <button id="btn-auto">자동으로 계속</button>
+      <button id="btn-undo">되돌리기</button>
+      <button id="btn-reset">처음부터</button>
+    </div>
+
+    <div class="controls">
+      <div class="slider-group">
+        <label for="temp">온도(temperature)</label>
+        <input type="range" id="temp" min="0.1" max="1.5" step="0.05" value="0.8">
+        <span class="slider-value" id="temp-value">0.80</span>
+      </div>
+      <span class="temp-hint" id="temp-hint"></span>
+    </div>
+
+    <div class="viz-canvas">
+      <div class="sentence" id="sentence"></div>
+      <div class="bars" id="bars"></div>
+      <div class="roulette-wrap">
+        <div class="roulette-label">확률 룰렛 — 막대 너비만큼 자리를 차지하고, 바늘이 떨어진 칸의 단어가 뽑힙니다</div>
+        <div class="roulette" id="roulette">
+          <div class="roulette-track" id="roulette-track"></div>
+          <div class="roulette-needle" id="needle"></div>
+        </div>
+      </div>
+    </div>
+
+    <details class="more">
+      <summary>자세히 — 온도는 무엇을 바꾸는가</summary>
+      <div class="inner">
+        <p>
+          모델이 내놓는 건 확률이 아니라 <strong>로짓</strong>이라는 점수 $z_i$ 입니다.
+          이 점수를 확률로 바꾸는 계산이 softmax이고, 온도 $T$ 는 여기 들어갑니다.
+        </p>
+        <p>$$p_i = \frac{e^{z_i / T}}{\sum_j e^{z_j / T}}$$</p>
+        <p>
+          $T$ 가 작으면 1등 점수만 살아남아 확률이 한쪽으로 쏠리고(항상 같은 답),
+          $T$ 가 크면 점수 차이가 뭉개져서 낮은 확률의 단어도 자주 뽑힙니다(엉뚱한 답).
+          위 슬라이더는 이 식을 실제로 다시 계산합니다.
+        </p>
+        <label><input type="checkbox" id="greedy"> 항상 1등만 고르기 (greedy)</label>
+        <label><input type="checkbox" id="use-topk"> top-k <input type="number" id="topk" min="1" max="10" value="3" style="width:56px"></label>
+        <label><input type="checkbox" id="use-topp"> top-p <input type="number" id="topp" min="0.1" max="1" step="0.05" value="0.9" style="width:66px"></label>
+        <div id="dist-table-wrap"></div>
+      </div>
+    </details>
+  </div>
+
+  <script src="../../common/nav.js"></script>
+  <script src="data.js"></script>
+  <script src="script.js"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      if (window.renderMathInElement) {
+        renderMathInElement(document.body, {
+          delimiters: [
+            { left: "$$", right: "$$", display: true },
+            { left: "$", right: "$", display: false }
+          ]
+        });
+      }
+    });
+  </script>
+</body>
+</html>

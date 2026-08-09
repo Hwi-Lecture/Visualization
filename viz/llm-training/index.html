@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLM은 어떻게 배울까? - 강의 시각화 자료실</title>
+<link rel="stylesheet" href="../../common/style.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<style>
+  body { max-width: 1180px; }
+
+  .viz-root {
+    --series-1: #2a78d6;   /* 모델의 예측 */
+    --series-2: #eb6834;   /* 정답 */
+    --muted-ink: #898781;
+    --gridline: #e1e0d9;
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+
+  .panel {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    background: #ffffff;
+  }
+
+  .panel h2 {
+    font-size: 0.95rem;
+    text-transform: none;
+    color: var(--muted-ink);
+    margin: 0 0 12px;
+    font-weight: 600;
+  }
+
+  /* ── 현재 학습 예제 ─────────────────────────────────── */
+  .example {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 7px;
+    min-height: 56px;
+  }
+
+  .chip {
+    font-size: 1.35rem;
+    padding: 3px 11px;
+    border-radius: 7px;
+    background: #f5f5f5;
+    border: 1px solid var(--border);
+    font-family: "SFMono-Regular", Consolas, monospace;
+  }
+
+  .chip.answer {
+    background: #ffffff;
+    border-color: var(--series-2);
+    color: var(--series-2);
+    font-weight: 700;
+  }
+
+  .arrow { color: var(--muted-ink); font-size: 1.2rem; padding: 0 4px; }
+
+  /* ── 확률 막대 ──────────────────────────────────────── */
+  .bar-row {
+    display: grid;
+    grid-template-columns: 118px 1fr 66px;
+    align-items: center;
+    gap: 10px;
+    height: 34px;
+  }
+
+  .bar-word {
+    font-size: 1.05rem;
+    text-align: right;
+    font-family: "SFMono-Regular", Consolas, monospace;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .bar-track { height: 20px; }
+
+  .bar-fill {
+    height: 100%;
+    background: var(--series-1);
+    border-radius: 0 4px 4px 0;
+    min-width: 2px;
+  }
+
+  .bar-pct { font-size: 1rem; font-variant-numeric: tabular-nums; }
+
+  /* 정답 막대 — 색만으로 구분하지 않도록 체크 표시를 같이 붙인다 */
+  .bar-row.answer .bar-fill { background: var(--series-2); }
+  .bar-row.answer .bar-word { color: var(--series-2); font-weight: 700; }
+  .bar-row.answer .bar-word::before { content: "✓ "; }
+
+  /* ── 숫자 타일 ──────────────────────────────────────── */
+  .stats { display: flex; gap: 26px; flex-wrap: wrap; margin-bottom: 6px; }
+
+  .stat-label { font-size: 0.85rem; color: var(--muted-ink); }
+
+  .stat-value {
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.15;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .stat-value small { font-size: 0.95rem; font-weight: 400; color: var(--muted-ink); }
+
+  /* ── 코퍼스 ─────────────────────────────────────────── */
+  .corpus { font-size: 0.95rem; line-height: 1.9; font-family: "SFMono-Regular", Consolas, monospace; }
+  .corpus div { padding: 0 6px; border-radius: 5px; }
+  .corpus div.active { background: #fdece4; color: var(--series-2); font-weight: 600; }
+
+  /* ── 생성 결과 ──────────────────────────────────────── */
+  #samples {
+    font-size: 1.25rem;
+    font-family: "SFMono-Regular", Consolas, monospace;
+    line-height: 2;
+    min-height: 40px;
+    color: var(--text);
+  }
+
+  #samples .placeholder { font-size: 1rem; font-family: inherit; color: var(--muted-ink); }
+
+  /* ── 컨트롤 ─────────────────────────────────────────── */
+  .controls button {
+    font-size: 1rem;
+    padding: 9px 16px;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: #ffffff;
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  .controls button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .controls button:disabled { opacity: 0.4; cursor: default; }
+
+  .controls button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #ffffff;
+    font-weight: 600;
+  }
+
+  .controls button.primary:hover:not(:disabled) { background: #1f5590; color: #ffffff; }
+
+  .slider-group { display: flex; align-items: center; gap: 9px; }
+  .slider-group input[type="range"] { width: 150px; }
+
+  .slider-value {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: var(--text);
+    min-width: 42px;
+  }
+
+  details.more {
+    margin-top: 22px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    background: #fafafa;
+  }
+
+  details.more summary { cursor: pointer; font-weight: 600; color: var(--accent); }
+  details.more .inner { padding-top: 12px; font-size: 0.95rem; }
+</style>
+</head>
+<body>
+  <div id="viz-nav"></div>
+
+  <h1>LLM은 어떻게 배울까?</h1>
+  <p>
+    아래 모델은 <strong>지금 이 브라우저에서 진짜로 학습됩니다.</strong> 미리 녹화한 애니메이션이 아닙니다.
+    문장의 다음 단어를 맞혀 보고, 틀린 만큼 자기 자신을 조금씩 고칩니다. 그게 전부입니다.
+  </p>
+
+  <div class="viz-root">
+    <div class="controls">
+      <button id="btn-step" class="primary">한 번 배우기</button>
+      <button id="btn-run">빠르게 학습</button>
+      <button id="btn-reset">처음부터</button>
+      <div class="slider-group">
+        <label for="lr">학습률</label>
+        <input type="range" id="lr" min="0.01" max="0.5" step="0.01" value="0.15">
+        <span class="slider-value" id="lr-value">0.15</span>
+      </div>
+      <div class="slider-group">
+        <label for="speed">속도</label>
+        <input type="range" id="speed" min="1" max="200" step="1" value="60">
+        <span class="slider-value" id="speed-value">60</span>
+      </div>
+    </div>
+
+    <div class="layout">
+      <div class="panel">
+        <h2>지금 풀고 있는 문제</h2>
+        <div class="example" id="example"></div>
+        <div style="margin:14px 0 4px;" class="stat-label">모델의 예측</div>
+        <div id="bars"></div>
+      </div>
+
+      <div class="panel">
+        <div class="stats">
+          <div>
+            <div class="stat-label">학습 횟수</div>
+            <div class="stat-value" id="stat-steps">0</div>
+          </div>
+          <div>
+            <div class="stat-label">틀린 정도 (loss)</div>
+            <div class="stat-value" id="stat-loss">–</div>
+          </div>
+          <div>
+            <div class="stat-label">정답에 준 확률</div>
+            <div class="stat-value" id="stat-p">–</div>
+          </div>
+        </div>
+        <div id="loss-plot" style="height:250px;"></div>
+      </div>
+    </div>
+
+    <div class="layout" style="margin-top:18px;">
+      <div class="panel">
+        <h2>배우는 중인 문장들 (전체 학습 데이터)</h2>
+        <div class="corpus" id="corpus"></div>
+      </div>
+
+      <div class="panel">
+        <h2>지금 실력으로 문장 만들어보기</h2>
+        <div class="controls" style="margin-top:0;">
+          <button id="btn-generate" class="primary">문장 만들기</button>
+          <span class="stat-label">학습 전에 눌러보고, 학습 후에 또 눌러보세요</span>
+        </div>
+        <div id="samples"><span class="placeholder">아직 만든 문장이 없습니다.</span></div>
+      </div>
+    </div>
+
+    <details class="more">
+      <summary>자세히 — 무엇을 계산하고 무엇을 고치는가</summary>
+      <div class="inner">
+        <p>
+          모델은 정답 단어에 확률 $p$ 를 줍니다. 이때 <strong>틀린 정도</strong>는 이렇게 잽니다.
+        </p>
+        <p>$$\text{loss} = -\log p$$</p>
+        <p>
+          정답에 100% 확률을 주면 loss는 0, 확률을 적게 줄수록 loss가 커집니다.
+          그다음 모델 안의 숫자(가중치)를 <em>loss가 줄어드는 방향으로</em> 아주 조금 움직입니다.
+          이걸 수십만 번 반복하는 것이 학습입니다. <strong>학습률</strong>은 그 "조금"의 크기입니다.
+        </p>
+        <p id="model-spec" class="stat-label"></p>
+        <p class="stat-label">
+          진짜 LLM과 다른 점: 여기 모델은 바로 앞 3단어만 보고, 크기도 1만 배 이상 작으며,
+          문장 10개만 배웁니다. 그래서 금방 <strong>통째로 외워</strong> 버립니다.
+          진짜 LLM은 같은 원리를 인터넷 전체 규모의 글에 적용한 것입니다.
+        </p>
+      </div>
+    </details>
+  </div>
+
+  <script src="../../common/nav.js"></script>
+  <script src="model.js"></script>
+  <script src="script.js"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      if (window.renderMathInElement) {
+        renderMathInElement(document.body, {
+          delimiters: [
+            { left: "$$", right: "$$", display: true },
+            { left: "$", right: "$", display: false }
+          ]
+        });
+      }
+    });
+  </script>
+</body>
+</html>
