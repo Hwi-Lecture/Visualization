@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>자른 문서를 어떻게 저장할까? — 임베딩과 색인 - 강의 시각화 자료실</title>
+<link rel="stylesheet" href="../../common/style.css">
+<style>
+  body { max-width: 1180px; }
+
+  .viz-root {
+    --series-1: #2a78d6;   /* Sparse 계열 */
+    --series-2: #eb6834;   /* Dense 계열 */
+    --muted-ink: #898781;
+    --gridline: #e1e0d9;
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+
+  .panel {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    background: #ffffff;
+  }
+
+  .panel h2 {
+    font-size: 0.95rem;
+    color: var(--muted-ink);
+    margin: 0 0 4px;
+    font-weight: 600;
+  }
+
+  .panel .sub { font-size: 0.85rem; color: var(--muted-ink); margin-bottom: 12px; }
+
+  .tag {
+    display: inline-block;
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 20px;
+    vertical-align: 2px;
+    margin-right: 6px;
+  }
+
+  .tag.sparse { background: #e3edfa; color: #1f5590; }
+  .tag.dense { background: #fdeee6; color: #b5471a; }
+
+  /* ── 이어받은 설정 안내 ─────────────────────────────── */
+  .inherit {
+    font-size: 0.9rem;
+    color: var(--muted-ink);
+    background: #fafafa;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+  }
+
+  .inherit a { color: var(--accent); }
+  .inherit strong { color: var(--text); }
+
+  /* ── 벡터 격자 ──────────────────────────────────────── */
+  .vec-grid {
+    display: grid;
+    grid-template-columns: repeat(30, 1fr);
+    gap: 2px;
+    margin: 10px 0 8px;
+  }
+
+  .vec-grid i {
+    aspect-ratio: 1;
+    background: #f0efe9;
+    border-radius: 1px;
+    display: block;
+  }
+
+  .vec-grid i.on { background: var(--series-1); }
+  .vec-grid.dense i { background: var(--series-2); }
+
+  .vec-caption { font-size: 0.9rem; }
+  .vec-caption b { font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+  .vec-note { font-size: 0.85rem; color: var(--muted-ink); margin-top: 6px; line-height: 1.55; }
+
+  /* ── 미니 임베딩 6축 막대 ───────────────────────────── */
+  .axis-row {
+    display: grid;
+    grid-template-columns: 118px 1fr 46px;
+    align-items: center;
+    gap: 10px;
+    height: 28px;
+    font-size: 0.88rem;
+  }
+
+  .axis-row .name { text-align: right; color: var(--muted-ink); }
+  .axis-row .track { display: block; height: 14px; background: #f0efe9; border-radius: 3px; }
+  .axis-row .fill { display: block; height: 100%; background: var(--series-2); border-radius: 3px; min-width: 1px; }
+  .axis-row .val { font-variant-numeric: tabular-nums; font-size: 0.82rem; color: var(--muted-ink); }
+
+  /* ── 역색인 표 ──────────────────────────────────────── */
+  .index-table { max-height: 330px; overflow-y: auto; }
+
+  .index-row {
+    display: grid;
+    grid-template-columns: 108px 1fr;
+    gap: 10px;
+    align-items: center;
+    padding: 5px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9rem;
+  }
+
+  .index-row:hover { background: #f5f5f5; }
+  .index-row.sel { background: #e3edfa; }
+
+  .index-row .term {
+    font-family: "SFMono-Regular", Consolas, monospace;
+    text-align: right;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .index-row .posting { color: var(--muted-ink); font-variant-numeric: tabular-nums; font-size: 0.85rem; }
+  .index-row.sel .posting { color: var(--text); }
+
+  /* ── 2D 의미 지도 ───────────────────────────────────── */
+  #map { width: 100%; height: auto; display: block; }
+  #map .dot { transition: r 0.25s ease, opacity 0.25s ease; }
+  #map .lbl { font-size: 9px; fill: var(--muted-ink); }
+  #map .axis-lbl { font-size: 10px; fill: #b8b6ae; }
+  #map .frame { fill: none; stroke: var(--gridline); }
+
+  .map-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 0.82rem; color: var(--muted-ink); margin-top: 8px; }
+  .map-legend span { display: flex; align-items: center; gap: 5px; }
+  .map-legend i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
+  /* ── 대조표 ─────────────────────────────────────────── */
+  table.compare { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 0.92rem; }
+  table.compare th, table.compare td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table.compare th { color: var(--muted-ink); font-weight: 600; font-size: 0.85rem; }
+  table.compare td:first-child { color: var(--muted-ink); width: 128px; }
+  table.compare tr:last-child td { border-bottom: none; }
+
+  /* ── 컨트롤 ─────────────────────────────────────────── */
+  .controls button {
+    font-size: 1rem;
+    padding: 9px 16px;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: #ffffff;
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  .controls button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .controls button:disabled { opacity: 0.4; cursor: default; }
+
+  .controls button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #ffffff;
+    font-weight: 600;
+  }
+
+  .controls button.primary:hover:not(:disabled) { background: #1f5590; color: #ffffff; }
+  .controls select { font-size: 1rem; padding: 8px 10px; border-radius: 7px; border: 1px solid var(--border); max-width: 460px; }
+
+  details.more {
+    margin-top: 22px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    background: #fafafa;
+  }
+
+  details.more summary { cursor: pointer; font-weight: 600; color: var(--accent); }
+  details.more .inner { padding-top: 12px; font-size: 0.95rem; }
+  details.more li { margin-bottom: 7px; }
+
+  .section-title { margin: 26px 0 10px; font-size: 1.05rem; font-weight: 700; }
+  .section-title small { font-weight: 400; color: var(--muted-ink); font-size: 0.88rem; margin-left: 8px; }
+</style>
+</head>
+<body>
+  <div id="viz-nav"></div>
+
+  <h1>자른 문서를 어떻게 저장할까? — 임베딩과 색인</h1>
+  <p>
+    잘라 둔 청크는 그냥 쌓아 두면 찾을 수가 없습니다. 미리 <strong>찾기 좋은 형태로 바꿔서 저장</strong>해 둬야 하는데,
+    여기서 길이 둘로 갈립니다. <strong>단어를 세어 두거나</strong>, <strong>의미를 좌표로 바꿔 두거나</strong>.
+    같은 청크가 두 가지 색인으로 어떻게 변하는지 보세요.
+  </p>
+
+  <div class="viz-root">
+    <div class="inherit" id="inherit"></div>
+
+    <div class="section-title">① 같은 청크, 두 가지 벡터 <small>— '희소'와 '밀집'이라는 이름은 여기서 나왔습니다</small></div>
+
+    <div class="controls">
+      <select id="chunk-select" aria-label="청크 선택"></select>
+    </div>
+
+    <div class="layout">
+      <div class="panel">
+        <h2><span class="tag sparse">Sparse</span>단어를 세어 만든 벡터</h2>
+        <div class="sub">칸 하나 = 사전에 있는 단어 하나. 사람이 읽을 수 있습니다.</div>
+        <div class="vec-grid" id="sparse-grid"></div>
+        <div class="vec-caption" id="sparse-caption"></div>
+        <div class="vec-note">
+          위 격자는 어휘 사전의 앞부분 300칸만 그린 것입니다. 실제로는 3만 칸이 넘고,
+          그중 이 청크에 등장한 단어 자리만 켜집니다. 나머지는 전부 0입니다.
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2><span class="tag dense">Dense</span>의미를 좌표로 바꾼 벡터</h2>
+        <div class="sub">칸 하나 = 이름 없는 숫자. 사람은 읽을 수 없습니다.</div>
+        <div class="vec-grid dense" id="dense-grid"></div>
+        <div class="vec-caption" id="dense-caption"></div>
+        <div class="vec-note">
+          빈칸이 없다는 것이 핵심입니다. 위 격자는 <strong>모양을 보여주기 위한 예시 그림</strong>이고,
+          이 페이지가 실제로 계산에 쓰는 값은 아래 6칸입니다.
+        </div>
+        <div style="margin-top:14px;">
+          <div class="sub" style="margin-bottom:6px;">이 페이지가 실제로 쓰는 미니 임베딩 (6칸)</div>
+          <div id="axis-bars"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-title">② 그래서 무엇이 저장되는가 <small>— 왼쪽은 단어 목록, 오른쪽은 좌표</small></div>
+
+    <div class="layout">
+      <div class="panel">
+        <h2><span class="tag sparse">Sparse</span>역색인 (inverted index)</h2>
+        <div class="sub">단어를 눌러 보세요. 그 단어가 들어 있는 청크가 오른쪽 지도에 표시됩니다.</div>
+        <div class="index-table" id="index-table"></div>
+      </div>
+
+      <div class="panel">
+        <h2><span class="tag dense">Dense</span>벡터 색인 (의미 공간)</h2>
+        <div class="sub">청크마다 좌표를 하나씩 받아 이 평면 위에 자리를 잡습니다.</div>
+        <svg id="map" viewBox="0 0 400 340" role="img" aria-label="청크들이 의미 공간에 배치된 산점도"></svg>
+        <div class="map-legend" id="map-legend"></div>
+      </div>
+    </div>
+
+    <div class="section-title">③ 두 색인의 성격 <small>— 어느 하나가 항상 낫지는 않습니다</small></div>
+
+    <div class="panel">
+      <table class="compare">
+        <thead>
+          <tr><th></th><th><span class="tag sparse">Sparse</span>역색인</th><th><span class="tag dense">Dense</span>벡터 색인</th></tr>
+        </thead>
+        <tbody id="compare-body"></tbody>
+      </table>
+    </div>
+
+    <details class="more">
+      <summary>자세히 — 이 페이지에서 조심해서 봐야 할 것</summary>
+      <div class="inner">
+        <ul>
+          <li>
+            <strong>이 페이지의 Dense 벡터는 손으로 만든 6차원 미니 임베딩입니다.</strong>
+            실제 임베딩 모델의 출력이 아닙니다. 축에 "배터리", "발열" 같은 이름을 붙여 둔 것은
+            눈으로 보이게 하려는 장치이고, 진짜 임베딩의 768개 축에는 이런 이름이 없습니다.
+          </li>
+          <li>
+            역색인은 <strong>단어가 정확히 일치할 때만</strong> 걸립니다. 그래서 오타, 띄어쓰기,
+            조사 처리 방식이 성능에 직접 영향을 줍니다.
+          </li>
+          <li>
+            벡터 색인은 <strong>가까운 이웃을 빠르게 찾는 자료구조</strong>(HNSW 등)를 따로 씁니다.
+            문서가 늘어나면 색인을 다시 만드는 비용이 역색인보다 큽니다.
+          </li>
+          <li>
+            2차원 지도는 6차원을 눌러서 그린 그림입니다. <strong>실제 거리와 그림 위 거리는 다를 수 있습니다.</strong>
+            같은 자리에 겹치는 점은 조금씩 흩어 놓았습니다.
+          </li>
+        </ul>
+      </div>
+    </details>
+  </div>
+
+  <script src="../../common/nav.js"></script>
+  <script src="../rag-shared/corpus.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>

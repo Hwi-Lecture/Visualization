@@ -9,26 +9,46 @@
 <body>
   <h1>강의 시각화 자료실</h1>
   <p>강의에서 사용하는 인터랙티브 시각화 자료 모음입니다.</p>
-  <div class="card-grid" id="card-grid"></div>
+  <div id="catalog"></div>
 
   <script>
     fetch("viz.json")
       .then(res => res.json())
       .then(items => {
-        const grid = document.getElementById("card-grid");
+        const root = document.getElementById("catalog");
         if (!items.length) {
-          grid.innerHTML = '<p style="color:#888;">아직 등록된 시각화가 없습니다.</p>';
+          root.innerHTML = '<p style="color:#888;">아직 등록된 시각화가 없습니다.</p>';
           return;
         }
-        grid.innerHTML = items.map(item => `
+
+        // category별로 묶는다. Map은 넣은 순서를 지키므로 viz.json에 적은 순서가 그대로 유지된다.
+        // category가 없는 항목도 그냥 "기타"로 들어가 카드가 사라지지 않는다.
+        const groups = new Map();
+        for (const item of items) {
+          const key = item.category || "기타";
+          if (!groups.has(key)) groups.set(key, []);
+          groups.get(key).push(item);
+        }
+
+        const cards = list => list.map(item => `
           <a class="card" href="${item.path}">
             <h3>${item.title}</h3>
             <p>${item.description}</p>
           </a>
         `).join("");
+
+        // 묶음이 하나뿐이면 제목을 달 이유가 없다 (예전처럼 그리드만 보인다)
+        root.innerHTML = groups.size <= 1
+          ? `<div class="card-grid">${cards(items)}</div>`
+          : [...groups].map(([name, list]) => `
+              <section class="cat">
+                <h2 class="cat-title">${name} <span class="cat-count">${list.length}</span></h2>
+                <div class="card-grid">${cards(list)}</div>
+              </section>
+            `).join("");
       })
       .catch(() => {
-        document.getElementById("card-grid").innerHTML =
+        document.getElementById("catalog").innerHTML =
           '<p style="color:#888;">viz.json을 불러오지 못했습니다. (로컬에서는 간단한 서버로 열어야 fetch가 동작합니다: 예) python -m http.server)</p>';
       });
   </script>

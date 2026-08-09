@@ -29,8 +29,16 @@
 
 1. `viz/_template/`을 `viz/<새-이름>/`으로 복사
 2. 해당 폴더 안에서 내용 작성 (index.html, script.js)
-3. `viz.json`에 한 줄 추가 (title, description, path)
+3. `viz.json`에 항목 추가 (category, title, description, path)
 4. 메인 `index.html`은 건드릴 필요 없음 — viz.json 기반으로 카드 자동 생성됨
+
+### category 규칙
+
+- 메인 페이지는 `category`가 같은 것끼리 묶어서 섹션으로 보여준다.
+- 섹션 순서와 섹션 안 카드 순서는 **viz.json에 적은 순서 그대로**다. 강의 순서대로 적으면 된다.
+- 같은 주제의 여러 페이지는 반드시 같은 문자열을 쓸 것 (오타 나면 섹션이 갈라진다).
+- `category`를 빼면 "기타"로 묶인다. 카테고리가 하나뿐이면 섹션 제목 없이 그리드만 나온다.
+- 현재 쓰는 값: `LLM 기초`, `RAG`
 
 ## 사용 라이브러리 (전부 CDN)
 

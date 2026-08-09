@@ -1,12 +1,38 @@
 [
   {
+    "category": "LLM 기초",
     "title": "LLM은 어떻게 다음 단어를 고를까?",
     "description": "다음에 올 단어의 확률을 보고 하나를 뽑는 과정. 온도(temperature)를 바꾸면 왜 답이 달라지는지 확인할 수 있습니다.",
     "path": "viz/next-token/index.html"
   },
   {
+    "category": "LLM 기초",
     "title": "LLM은 어떻게 배울까?",
     "description": "브라우저에서 진짜로 학습되는 초소형 언어 모델. 헛소리가 문장이 되기까지 loss가 내려가는 과정을 봅니다.",
     "path": "viz/llm-training/index.html"
+  },
+  {
+    "category": "RAG",
+    "title": "RAG는 어떻게 동작할까? — 전체 흐름",
+    "description": "문서가 들어와 색인이 되기까지(미리 하는 일)와 질문이 들어와 답이 나오기까지(그때그때 하는 일)를 나눠서 봅니다. 각 단계를 누르면 자세한 시각화로 이동합니다.",
+    "path": "viz/rag-pipeline/index.html"
+  },
+  {
+    "category": "RAG",
+    "title": "문서를 어떻게 자를까? — 청킹(chunking)",
+    "description": "청크 크기와 겹침을 바꾸면 문서가 잘리는 위치가 실시간으로 달라집니다. 정답 문장이 경계에서 두 동강 나 검색이 실패하는 순간을 볼 수 있습니다.",
+    "path": "viz/rag-chunking/index.html"
+  },
+  {
+    "category": "RAG",
+    "title": "자른 문서를 어떻게 저장할까? — 임베딩과 색인",
+    "description": "같은 청크에서 키워드 색인과 벡터 색인이 각각 어떻게 만들어지는지 나란히 봅니다. '희소'와 '밀집'이라는 이름의 유래가 눈에 보입니다.",
+    "path": "viz/rag-indexing/index.html"
+  },
+  {
+    "category": "RAG",
+    "title": "어떤 문서를 찾아올까? — 키워드 검색 vs 의미 검색",
+    "description": "같은 질문을 Sparse와 Dense 두 검색기에 동시에 넣어 봅니다. 서로 다른 답을 1등으로 올리는 순간, 각자 실패하는 순간, 그리고 찾은 내용이 프롬프트에 끼워지는 마지막 단계까지 봅니다.",
+    "path": "viz/rag-retrieval/index.html"
   }
 ]

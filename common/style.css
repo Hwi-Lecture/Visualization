@@ -23,6 +23,29 @@ h1 { border-bottom: 2px solid var(--text); padding-bottom: 10px; }
 
 a { color: var(--accent); }
 
+/* 메인 페이지 카테고리 묶음 */
+.cat { margin-top: 34px; }
+.cat:first-child { margin-top: 24px; }
+
+.cat-title {
+  font-size: 1.1rem;
+  margin: 0 0 2px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+
+.cat-count {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 1px 9px;
+}
+
 /* 메인 페이지 카드 그리드 */
 .card-grid {
   display: grid;
@@ -30,6 +53,8 @@ a { color: var(--accent); }
   gap: 16px;
   margin-top: 24px;
 }
+
+.cat .card-grid { margin-top: 16px; }
 
 .card {
   display: block;
