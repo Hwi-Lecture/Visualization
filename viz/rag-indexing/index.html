@@ -84,6 +84,37 @@
   .vec-grid i.on { background: var(--series-1); }
   .vec-grid.dense i { background: var(--series-2); }
 
+  /* ── 단어 칩(sparse 어휘) ───────────────────────────── */
+  .word-cloud {
+    display: flex;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    gap: 4px 5px;
+    max-height: 220px;
+    overflow-y: auto;
+    margin: 10px 0 8px;
+    padding: 4px 2px;
+    border: 1px solid var(--gridline);
+    border-radius: 8px;
+  }
+
+  .word-cloud .word {
+    display: inline-block;
+    font-size: 0.78rem;
+    padding: 3px 9px;
+    border-radius: 12px;
+    background: #f0efe9;
+    color: var(--muted-ink);
+    white-space: nowrap;
+    line-height: 1.3;
+  }
+
+  .word-cloud .word.on {
+    background: var(--series-1);
+    color: #ffffff;
+    font-weight: 600;
+  }
+
   .vec-caption { font-size: 0.9rem; }
   .vec-caption b { font-size: 1.15rem; font-variant-numeric: tabular-nums; }
   .vec-note { font-size: 0.85rem; color: var(--muted-ink); margin-top: 6px; line-height: 1.55; }
@@ -212,13 +243,10 @@
     <div class="layout">
       <div class="panel">
         <h2><span class="tag sparse">Sparse</span>단어를 세어 만든 벡터</h2>
-        <div class="sub">칸 하나 = 사전에 있는 단어 하나. 사람이 읽을 수 있습니다.</div>
-        <div class="vec-grid" id="sparse-grid"></div>
+        <div class="sub">칩 하나 = 사전에 있는 단어 하나. 이 청크에 등장한 단어만 파랗게 켜집니다.</div>
+        <div class="word-cloud" id="sparse-grid"></div>
         <div class="vec-caption" id="sparse-caption"></div>
-        <div class="vec-note">
-          위 격자는 어휘 사전의 앞부분 300칸만 그린 것입니다. 실제로는 3만 칸이 넘고,
-          그중 이 청크에 등장한 단어 자리만 켜집니다. 나머지는 전부 0입니다.
-        </div>
+        <div class="vec-note" id="sparse-note"></div>
       </div>
 
       <div class="panel">

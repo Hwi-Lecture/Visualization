@@ -23,6 +23,7 @@ const el = {
   chunkSelect: document.getElementById("chunk-select"),
   sparseGrid: document.getElementById("sparse-grid"),
   sparseCaption: document.getElementById("sparse-caption"),
+  sparseNote: document.getElementById("sparse-note"),
   denseGrid: document.getElementById("dense-grid"),
   denseCaption: document.getElementById("dense-caption"),
   axisBars: document.getElementById("axis-bars"),
@@ -75,29 +76,27 @@ function renderInherit() {
 function renderVectors() {
   const p = points[state.chunkIndex];
   const tokens = ragTokenize(p.chunk.text);
-  const uniq = [...new Set(tokens)];
+  const uniqSet = new Set(tokens);
 
-  // ── Sparse 격자: 단어를 어휘 사전의 한 자리에 대응시킨다.
-  // 실제 사전 순서를 흉내 내려고 단어 해시로 칸을 정한다 (매번 같은 자리에 찍히도록).
-  const slot = new Map();
-  for (const t of uniq) {
-    let at = hashCode(t) % GRID_CELLS;
-    while (slot.has(at)) at = (at + 1) % GRID_CELLS;   // 칸이 겹치면 옆으로 밀어 둔다
-    slot.set(at, t);
-  }
-
+  // ── Sparse 어휘: 이 네 문서에 실제로 등장한 단어를 전부 나열하고,
+  // 지금 고른 청크에 등장한 단어만 파랗게 켜서 "칸이 켜진다"는 게 뭘 뜻하는지 보여준다.
   let sparseHtml = "";
-  for (let i = 0; i < GRID_CELLS; i++) {
-    const t = slot.get(i);
-    sparseHtml += t
-      ? `<i class="on" title="${escapeHtml(t)} — ${countIn(tokens, t)}번 등장"></i>`
-      : `<i></i>`;
+  let onCount = 0;
+  for (const w of VOCAB) {
+    const on = uniqSet.has(w);
+    if (on) onCount++;
+    sparseHtml += on
+      ? `<span class="word on" title="${escapeHtml(w)} — ${countIn(tokens, w)}번 등장">${escapeHtml(w)}</span>`
+      : `<span class="word">${escapeHtml(w)}</span>`;
   }
   el.sparseGrid.innerHTML = sparseHtml;
 
-  const zeroPct = (100 * (FAKE_VOCAB - uniq.length) / FAKE_VOCAB).toFixed(2);
+  const zeroPct = (100 * (VOCAB.length - onCount) / VOCAB.length).toFixed(1);
   el.sparseCaption.innerHTML =
-    `어휘 ${FAKE_VOCAB.toLocaleString()}칸 중 <b>${uniq.length}칸</b>만 켜짐 · 나머지 ${zeroPct}%는 0`;
+    `이 문서들의 어휘 <b>${VOCAB.length}개</b> 중 <b>${onCount}개</b>만 켜짐 · 나머지 ${zeroPct}%는 0`;
+  el.sparseNote.innerHTML =
+    `위 목록은 이 네 문서에서 실제로 등장한 단어 ${VOCAB.length}개 전부입니다. 실제 서비스의 어휘 사전은 ` +
+    `${FAKE_VOCAB.toLocaleString()}개가 넘고, 그중 이 청크에 등장한 단어 자리만 켜집니다. 나머지는 전부 0입니다.`;
 
   // ── Dense 격자: 모양(빈칸이 없다)을 보여주기 위한 예시 그림.
   // 이 청크의 6차원 벡터를 씨앗으로 삼아 항상 같은 무늬가 나오게 만든다.
@@ -270,12 +269,6 @@ function isFunctionWord(t) {
   return /(습니다|입니다|합니다|십시오|하는|하고|해서|되어|되는|지고|이며|으며|이고)$/.test(t);
 }
 
-function hashCode(s) {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-  return Math.abs(h);
-}
-
 // 같은 입력이면 항상 같은 값 — 새로고침할 때마다 무늬가 바뀌면 설명이 흔들린다
 function pseudoRandom(n) {
   const x = Math.sin(n) * 43758.5453;
@@ -296,5 +289,12 @@ function jitterFor(i) {
 }
 
 // ── 초기화 ─────────────────────────────────────────────────────
+
+// Sparse 패널에 나열할 어휘. 이 네 문서 전체에서 등장한 내용어만 모으고
+// (기능어를 걸러내는 기준은 역색인 표와 동일하게 맞춘다), 가나다 순으로 고정해
+// 청크를 바꿔도 단어 위치가 요동치지 않게 한다.
+const VOCAB = [...bm.df.keys()]
+  .filter(t => t.length >= 2 && !isFunctionWord(t))
+  .sort((a, b) => a.localeCompare(b, "ko"));
 
 render();

@@ -46,13 +46,13 @@ const ONLINE = [
   {
     id: "prompt", name: "프롬프트 조립",
     desc: "찾아온 청크를 질문과 함께 하나의 글로 묶습니다. 이게 LLM에게 실제로 들어갑니다.",
-    link: "../rag-retrieval/index.html",
+    link: null,
     say: "찾은 조각을 질문과 함께 묶어 LLM에게 넘깁니다. 여기 안 들어간 내용은 LLM이 알 방법이 없습니다."
   },
   {
     id: "answer", name: "답변 생성",
     desc: "LLM이 받은 자료 안에서 답을 만듭니다. 근거가 없으면 지어내기도 합니다.",
-    link: "../rag-retrieval/index.html",
+    link: null,
     say: "LLM은 받은 자료를 근거로 답합니다. 근거가 안 들어왔는데 답이 나왔다면, 그건 지어낸 것입니다."
   }
 ];
