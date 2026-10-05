@@ -1,94 +1,60 @@
 /*
  * 청킹 페이지.
  *
- * 원문 위에 청크 경계를 직접 칠해서 "어디서 잘리는가"를 보여주는 것이 전부다.
- * 핵심 장면은 q4("환불은 언제까지 신청해요?")의 정답 문장이 기본 설정에서
- * 두 청크로 갈라지는 순간 — 뒤 단계가 아무리 좋아도 답이 안 나오는 이유다.
+ * 수강생이 올린 문서마다 섹션 하나. 한 가지 설정(방식·크기·겹침)을 모든 문서에 동시에 적용하고,
+ * 잘린 결과를 청크 카드 그리드로 펼쳐 보여준다. 카드를 순서대로 읽으면 원문이 그대로 이어지고,
+ * 앞뒤 청크와 겹치는 글자는 빗금으로 칠해 "두 번 저장되는 부분"이 눈에 띄게 한다.
  */
 
-const ANSWER_QUERY = RAG_QUERIES.find(q => q.id === "q4");
-const ANSWER_DOC_ID = ANSWER_QUERY.answerDoc;
+// 청크가 수백 개인 문서는 카드를 한꺼번에 다 그리면 슬라이더가 버벅인다. 처음엔 이만큼만 그린다.
+const GRID_STEP = 60;
 
 const el = {
-  docSelect: document.getElementById("doc-select"),
+  upload: document.getElementById("upload"),
+  fileInput: document.getElementById("file-input"),
   modeGroup: document.getElementById("mode-group"),
   size: document.getElementById("size"),
   sizeValue: document.getElementById("size-value"),
   overlap: document.getElementById("overlap"),
   overlapValue: document.getElementById("overlap-value"),
   reset: document.getElementById("btn-reset"),
-  verdict: document.getElementById("verdict"),
-  source: document.getElementById("source"),
-  chunks: document.getElementById("chunks"),
-  count: document.getElementById("stat-count"),
-  avg: document.getElementById("stat-avg"),
-  min: document.getElementById("stat-min"),
-  tradeoff: document.getElementById("tradeoff")
+  modeNote: document.getElementById("mode-note"),
+  docs: document.getElementById("docs")
 };
 
-const saved = ragLoadSettings();
 const state = {
-  docId: ANSWER_DOC_ID,   // 핵심 장면이 있는 문서에서 시작한다
-  size: saved.size,
-  overlap: saved.overlap,
-  mode: saved.mode
+  size: RAG_CHUNK_DEFAULTS.size,
+  overlap: RAG_CHUNK_DEFAULTS.overlap,
+  mode: RAG_CHUNK_DEFAULTS.mode,
+  // 각 문서: { id, title, kind, text, status: "ready"|"loading"|"error", error, shown }
+  docs: []
 };
+
+let uploadSeq = 0;
 
 // ── 계산 ───────────────────────────────────────────────────────
 
-function currentDoc() {
-  return RAG_DOCS.find(d => d.id === state.docId);
-}
-
-function currentChunks(doc) {
-  return ragChunkDoc(doc || currentDoc(), state.size, state.overlap, state.mode);
-}
-
-// 정답 문장이 어느 한 청크 안에 온전히 들어갔는지 판정한다.
-function checkAnswerSurvives() {
-  const doc = RAG_DOCS.find(d => d.id === ANSWER_DOC_ID);
-  const at = doc.text.indexOf(RAG_ANSWER_SENTENCE);
-  if (at === -1) return { ok: true, at: -1 };
-  const end = at + RAG_ANSWER_SENTENCE.length;
-  const chunks = ragChunkDoc(doc, state.size, state.overlap, state.mode);
-  const holder = chunks.find(c => c.start <= at && c.end >= end);
-  return { ok: !!holder, at, end, holder, chunks };
-}
-
-// 원문을 "겹치지 않는 구간"들로 쪼갠다. 각 구간이 어떤 청크에 속하는지 함께 들고 있어야
-// 겹치는 부분(청크 2개가 동시에 덮는 곳)을 따로 칠할 수 있다.
-function buildSegments(text, chunks, answerRange) {
-  const cuts = new Set([0, text.length]);
-  for (const c of chunks) { cuts.add(c.start); cuts.add(c.end); }
-  if (answerRange) { cuts.add(answerRange[0]); cuts.add(answerRange[1]); }
-
-  const points = [...cuts].filter(p => p >= 0 && p <= text.length).sort((a, b) => a - b);
-  const segs = [];
-  for (let i = 0; i < points.length - 1; i++) {
-    const start = points[i];
-    const end = points[i + 1];
-    if (end <= start) continue;
-    const owners = [];
-    for (let k = 0; k < chunks.length; k++) {
-      if (chunks[k].start <= start && chunks[k].end >= end) owners.push(k);
-    }
-    const inAnswer = answerRange && start >= answerRange[0] && end <= answerRange[1];
-    segs.push({ start, end, owners, inAnswer });
-  }
-  return segs;
+function chunksOf(doc) {
+  return ragChunkDoc(doc, state.size, state.overlap, state.mode);
 }
 
 // ── 그리기 ─────────────────────────────────────────────────────
 
-function render() {
-  const doc = currentDoc();
-  const chunks = currentChunks(doc);
+let renderQueued = false;
 
+// 슬라이더를 끌면 input 이벤트가 쏟아진다. 한 프레임에 한 번만 다시 그린다.
+function scheduleRender() {
+  if (renderQueued) return;
+  renderQueued = true;
+  requestAnimationFrame(() => {
+    renderQueued = false;
+    render();
+  });
+}
+
+function render() {
   renderControls();
-  renderSource(doc, chunks);
-  renderChunks(chunks);
-  renderStats(chunks);
-  renderVerdict();
+  renderDocs();
 }
 
 function renderControls() {
@@ -105,136 +71,278 @@ function renderControls() {
   for (const b of el.modeGroup.querySelectorAll("button")) {
     b.classList.toggle("primary", b.dataset.mode === state.mode);
   }
-}
-
-function renderSource(doc, chunks) {
-  const at = doc.text.indexOf(RAG_ANSWER_SENTENCE);
-  const answerRange = at === -1 ? null : [at, at + RAG_ANSWER_SENTENCE.length];
-  const segs = buildSegments(doc.text, chunks, answerRange);
-
-  // 청크가 새로 시작하는 지점들 — 여기에 세로선을 긋는다.
-  // 겹침이 있으면 "겹침 시작"과 "앞 청크 끝" 두 군데가 다르므로 시작점만 표시한다.
-  const starts = new Set(chunks.map(c => c.start).filter(p => p > 0));
-
-  let html = "";
-  for (const s of segs) {
-    if (starts.has(s.start)) html += '<i class="brk" aria-hidden="true"></i>';
-
-    const owner = s.owners.length ? s.owners[s.owners.length - 1] : null;
-    const cls = ["seg"];
-    if (s.owners.length > 1) cls.push("ov");
-    else if (owner !== null) cls.push(owner % 2 === 0 ? "c0" : "c1");
-    if (s.inAnswer) cls.push("ans");
-
-    const label = s.owners.length > 1
-      ? `청크 ${s.owners.map(i => i + 1).join(", ")}번이 함께 가진 부분`
-      : owner !== null ? `청크 ${owner + 1}번` : "";
-
-    html += `<span class="${cls.join(" ")}" title="${escapeHtml(label)}">${escapeHtml(doc.text.slice(s.start, s.end))}</span>`;
-  }
-  el.source.innerHTML = html;
-}
-
-function renderChunks(chunks) {
-  el.chunks.innerHTML = chunks.map((c, i) => {
-    // 정답 문장이 이 청크 안에 온전히 들어 있으면 표시해 준다
-    const whole = c.text.includes(RAG_ANSWER_SENTENCE);
-    const body = whole
-      ? escapeHtml(c.text).replace(escapeHtml(RAG_ANSWER_SENTENCE), m => `<mark>${m}</mark>`)
-      : escapeHtml(c.text);
-    return `
-      <div class="chunk-card ${i % 2 === 0 ? "c0" : "c1"}">
-        <div class="chunk-head">
-          <span>청크 ${i + 1}번</span>
-          <span>${c.start}–${c.end} · ${c.end - c.start}자</span>
-        </div>
-        <div class="body">${body.replace(/\n+/g, " ")}</div>
-      </div>`;
-  }).join("");
-}
-
-function renderStats(chunks) {
-  const lens = chunks.map(c => c.end - c.start);
-  el.count.textContent = chunks.length;
-  el.avg.innerHTML = `${Math.round(lens.reduce((a, b) => a + b, 0) / Math.max(1, lens.length))}<small>자</small>`;
-  el.min.innerHTML = `${Math.min(...lens)}<small>자</small>`;
 
   let msg;
-  if (state.mode === "paragraph") msg = "문단을 그대로 씁니다. 문단 길이가 들쭉날쭉하면 청크 길이도 들쭉날쭉해집니다.";
-  else if (state.mode === "sentence") msg = "문장은 절대 쪼개지 않습니다. 겹침도 문장 단위라, 되가져올 만큼 짧은 문장이 없으면 겹치는 구간이 안 생기기도 합니다.";
+  if (state.mode === "paragraph") msg = "빈 줄을 기준으로 문단을 그대로 씁니다. 문단 길이가 들쭉날쭉하면 청크 길이도 들쭉날쭉해집니다.";
+  else if (state.mode === "sentence") msg = "문장은 절대 쪼개지 않고 크기를 넘기기 직전까지 담습니다. 겹침도 문장 단위라, 되가져올 만큼 짧은 문장이 없으면 겹치는 구간이 안 생기기도 합니다.";
   else if (state.size <= 160) msg = "청크가 너무 짧습니다 — 조각만 봐서는 무슨 얘기인지 알기 어려워집니다.";
-  else if (state.size >= 500) msg = "청크가 큽니다 — 관계없는 내용이 함께 딸려 오고, LLM에 넣는 값도 비싸집니다.";
-  else msg = "적당한 범위입니다. 다만 '적당함'의 기준은 문서 성격마다 다릅니다.";
-  el.tradeoff.textContent = msg;
+  else if (state.size >= 1000) msg = "청크가 큽니다 — 관계없는 내용이 함께 딸려 오고, LLM에 넣는 값도 비싸집니다.";
+  else msg = "글자 수만 세고 자릅니다. 가장 흔한 방식이고, 가장 쉽게 문장을 두 동강 냅니다.";
+  el.modeNote.textContent = msg;
 }
 
-function renderVerdict() {
-  const r = checkAnswerSurvives();
-  const otherDoc = state.docId !== ANSWER_DOC_ID;
+// 섹션 뼈대는 문서마다 한 번만 만들고, 설정이 바뀌면 안쪽만 다시 채운다.
+const docEls = new Map();
 
-  const jump = otherDoc
-    ? `<button id="btn-jump">해당 문서 보기</button>`
-    : "";
-
-  if (r.ok) {
-    el.verdict.className = "verdict good";
-    el.verdict.innerHTML = `
-      <span class="icon" aria-hidden="true">✅</span>
-      <span>
-        <span class="q">질문 "${escapeHtml(ANSWER_QUERY.text)}"</span>
-        <strong>정답 문장이 청크 ${r.holder.index + 1}번 안에 온전히 들어 있습니다.</strong>
-        이 청크만 찾아오면 답을 만들 수 있습니다.
-      </span>${jump}`;
-  } else {
-    el.verdict.className = "verdict bad";
-    el.verdict.innerHTML = `
-      <span class="icon" aria-hidden="true">⚠️</span>
-      <span>
-        <span class="q">질문 "${escapeHtml(ANSWER_QUERY.text)}"</span>
-        <strong>이 설정에서는 정답 문장이 두 청크로 잘렸습니다.</strong>
-        어느 쪽을 찾아와도 답이 반쪽입니다. 겹침을 늘리거나 문장 경계로 잘라 보세요.
-      </span>${jump}`;
+function renderDocs() {
+  for (const [id, node] of docEls) {
+    if (!state.docs.some(d => d.id === id)) { node.remove(); docEls.delete(id); }
   }
 
-  const btn = document.getElementById("btn-jump");
-  if (btn) btn.addEventListener("click", () => {
-    state.docId = ANSWER_DOC_ID;
-    el.docSelect.value = ANSWER_DOC_ID;
+  el.docs.querySelector(".empty")?.remove();
+  for (const doc of state.docs) {
+    let sec = docEls.get(doc.id);
+    if (!sec) { sec = createSection(doc); docEls.set(doc.id, sec); }
+    el.docs.appendChild(sec);   // 이미 있으면 순서만 맞춰진다
+    fillSection(sec, doc);
+  }
+
+  if (!state.docs.length) {
+    el.docs.insertAdjacentHTML("beforeend",
+      '<div class="empty">위에 문서를 올리면 여기에 잘린 결과가 나타납니다.</div>');
+  }
+}
+
+const KIND_LABEL = { pdf: "PDF", docx: "Word", text: "텍스트", other: "파일" };
+
+function createSection(doc) {
+  const sec = document.createElement("section");
+  sec.className = "doc";
+  sec.dataset.id = doc.id;
+  sec.innerHTML = `
+    <div class="doc-head">
+      <h3>${escapeHtml(doc.title)}</h3>
+      <span class="badge ${doc.kind}">${KIND_LABEL[doc.kind] || ""}</span>
+      <span class="spacer"></span>
+      <button class="close" title="이 문서 빼기" aria-label="이 문서 빼기">✕</button>
+    </div>
+    <div class="doc-meta"></div>
+    <div class="doc-body"></div>`;
+
+  sec.querySelector(".close").addEventListener("click", () => {
+    state.docs = state.docs.filter(d => d.id !== doc.id);
     render();
+  });
+
+  wireSectionEvents(sec);
+  return sec;
+}
+
+function fillSection(sec, doc) {
+  const meta = sec.querySelector(".doc-meta");
+  const body = sec.querySelector(".doc-body");
+  delete sec.dataset.hl;   // 다시 그리면 강조가 지워지므로 기억해 둔 값도 비운다
+
+  if (doc.status === "loading") {
+    meta.textContent = "";
+    body.innerHTML = '<div class="status">문서에서 글자를 읽는 중…</div>';
+    return;
+  }
+  if (doc.status === "error") {
+    meta.textContent = "";
+    body.innerHTML = `<div class="status error">${escapeHtml(doc.error)}</div>`;
+    return;
+  }
+
+  const text = doc.text;
+  const chunks = chunksOf(doc);
+  const lens = chunks.map(c => c.end - c.start);
+  const total = lens.reduce((a, b) => a + b, 0);
+  const avg = Math.round(total / Math.max(1, lens.length));
+  // 겹침 때문에 청크 길이의 합이 원문보다 길어진다 — 그만큼 더 저장해야 한다는 뜻
+  const extra = text.length ? Math.round((total / text.length - 1) * 100) : 0;
+
+  meta.textContent = `원문 ${text.length.toLocaleString()}자` +
+    (extra > 0 ? ` · 겹침 때문에 ${extra}% 더 저장` : "");
+
+  if (!body.querySelector(".chunk-grid")) {
+    body.innerHTML = `
+      <div class="doc-stats"></div>
+      <div class="bar" role="img"></div>
+      <div class="bar-axis"><span>0</span><span class="axis-end"></span></div>
+      <div class="chunk-grid"></div>
+      <div class="grid-foot"></div>`;
+  }
+
+  body.querySelector(".doc-stats").innerHTML = `
+    <div><div class="label">청크 수</div><div class="value">${chunks.length.toLocaleString()}</div></div>
+    <div><div class="label">평균</div><div class="value">${avg}<small>자</small></div></div>
+    <div><div class="label">가장 짧은</div><div class="value">${Math.min(...lens)}<small>자</small></div></div>
+    <div><div class="label">가장 긴</div><div class="value">${Math.max(...lens)}<small>자</small></div></div>`;
+
+  renderBar(body.querySelector(".bar"), text.length, chunks);
+  body.querySelector(".bar").setAttribute("aria-label", `문서 전체를 ${chunks.length}개 청크로 나눈 막대`);
+  body.querySelector(".axis-end").textContent = `${text.length.toLocaleString()}자`;
+
+  const shown = Math.min(chunks.length, doc.shown || GRID_STEP);
+  renderChunkGrid(body.querySelector(".chunk-grid"), chunks, shown);
+
+  const rest = chunks.length - shown;
+  body.querySelector(".grid-foot").innerHTML = rest > 0
+    ? `<button class="card-btn" data-act="more">${Math.min(rest, GRID_STEP)}개 더 보기</button>
+       <button class="card-btn" data-act="all">전부 보기</button>
+       <span class="note">${shown.toLocaleString()} / ${chunks.length.toLocaleString()}개 표시 중</span>`
+    : "";
+}
+
+function renderBar(bar, len, chunks) {
+  const pct = v => (v / Math.max(1, len) * 100).toFixed(3);
+  bar.innerHTML = chunks.map((c, i) =>
+    `<div class="blk c${i % 2}" data-k="${i}" style="left:${pct(c.start)}%;width:${pct(c.end - c.start)}%"
+      title="청크 ${i + 1}번 · ${c.end - c.start}자"></div>`).join("");
+}
+
+function renderChunkGrid(grid, chunks, shown) {
+  const cards = [];
+  for (let i = 0; i < shown; i++) {
+    const c = chunks[i];
+    const prev = chunks[i - 1];
+    const next = chunks[i + 1];
+
+    // 이 청크 안에서 앞 청크와 겹치는 머리, 뒤 청크와 겹치는 꼬리 (원문 위치 기준)
+    const headEnd = prev && prev.end > c.start ? Math.min(prev.end, c.end) : c.start;
+    const tailStart = next && next.start < c.end ? Math.max(next.start, headEnd) : c.end;
+
+    const piece = (a, b) => escapeHtml(c.text.slice(a - c.start, b - c.start));
+    let body = "";
+    if (headEnd > c.start) body += `<span class="ov" title="${i}번 청크에도 들어 있는 부분">${piece(c.start, headEnd)}</span>`;
+    body += piece(headEnd, tailStart);
+    if (tailStart < c.end) body += `<span class="ov" title="${i + 2}번 청크에도 들어 있는 부분">${piece(tailStart, c.end)}</span>`;
+
+    cards.push(`
+      <div class="chunk-card c${i % 2}" data-k="${i}">
+        <div class="chunk-head">
+          <b>청크 ${i + 1}</b>
+          <span>${(c.end - c.start).toLocaleString()}자</span>
+        </div>
+        <div class="body">${body}</div>
+      </div>`);
+  }
+  grid.innerHTML = cards.join("");
+}
+
+// ── 섹션 안 상호작용: 막대 칸 ↔ 청크 카드를 같은 번호로 묶는다 ──────────
+
+function wireSectionEvents(sec) {
+  const docOf = () => state.docs.find(d => d.id === sec.dataset.id);
+
+  sec.addEventListener("mouseover", e => {
+    const hit = e.target.closest(".bar .blk, .chunk-card");
+    if (hit) highlight(sec, Number(hit.dataset.k));
+  });
+
+  sec.addEventListener("mouseleave", () => highlight(sec, null));
+
+  sec.addEventListener("click", e => {
+    const btn = e.target.closest(".card-btn");
+    if (btn) {
+      const doc = docOf();
+      const count = chunksOf(doc).length;
+      if (btn.dataset.act === "more") doc.shown = (doc.shown || GRID_STEP) + GRID_STEP;
+      if (btn.dataset.act === "all") doc.shown = count;
+      fillSection(sec, doc);
+      return;
+    }
+
+    // 막대의 칸을 누르면 그 청크 카드로 이동한다
+    const blk = e.target.closest(".bar .blk");
+    if (!blk) return;
+    const k = Number(blk.dataset.k);
+    const doc = docOf();
+    if (k >= (doc.shown || GRID_STEP)) {
+      doc.shown = Math.ceil((k + 1) / GRID_STEP) * GRID_STEP;   // 아직 안 그린 카드면 거기까지 펼친다
+      fillSection(sec, doc);
+    }
+    highlight(sec, k);
+    sec.querySelector(`.chunk-card[data-k="${k}"]`)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   });
 }
 
-// ── 컨트롤 ─────────────────────────────────────────────────────
+function highlight(sec, k) {
+  if (sec.dataset.hl === String(k)) return;
+  sec.dataset.hl = String(k);
+  for (const b of sec.querySelectorAll(".bar .blk.hl, .chunk-card.hl")) b.classList.remove("hl");
+  if (k === null) return;
+  sec.querySelector(`.bar .blk[data-k="${k}"]`)?.classList.add("hl");
+  sec.querySelector(`.chunk-card[data-k="${k}"]`)?.classList.add("hl");
+}
 
-el.docSelect.innerHTML = RAG_DOCS
-  .map(d => `<option value="${d.id}">${escapeHtml(d.title)}</option>`)
-  .join("");
-el.docSelect.value = state.docId;
+// ── 업로드 ─────────────────────────────────────────────────────
 
-el.docSelect.addEventListener("change", () => {
-  state.docId = el.docSelect.value;
+async function addFiles(fileList) {
+  const files = [...fileList];
+  if (!files.length) return;
+
+  const added = files.map(file => {
+    const doc = {
+      id: `u${++uploadSeq}`,
+      title: file.name,
+      kind: fileKind(file) || "other",
+      text: "",
+      status: "loading"
+    };
+    state.docs.push(doc);
+    return { file, doc };
+  });
   render();
+  docEls.get(added[0].doc.id)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+
+  await Promise.all(added.map(async ({ file, doc }) => {
+    try {
+      doc.text = await extractText(file);
+      doc.status = "ready";
+    } catch (err) {
+      doc.status = "error";
+      doc.error = err && err.message ? err.message : "문서를 읽지 못했습니다.";
+    }
+    // 그 사이 사용자가 문서를 지웠을 수도 있다
+    const sec = docEls.get(doc.id);
+    if (sec && state.docs.includes(doc)) fillSection(sec, doc);
+  }));
+}
+
+el.fileInput.addEventListener("change", () => {
+  addFiles(el.fileInput.files);
+  el.fileInput.value = "";   // 같은 파일을 다시 골라도 change가 일어나게
 });
+
+for (const type of ["dragenter", "dragover"]) {
+  el.upload.addEventListener(type, e => { e.preventDefault(); el.upload.classList.add("drag"); });
+}
+el.upload.addEventListener("dragleave", e => {
+  if (!el.upload.contains(e.relatedTarget)) el.upload.classList.remove("drag");
+});
+el.upload.addEventListener("drop", e => {
+  e.preventDefault();
+  el.upload.classList.remove("drag");
+  addFiles(e.dataTransfer.files);
+});
+
+// 업로드 상자 밖에 떨어뜨려도 브라우저가 파일을 열어 버리지 않게 막는다
+window.addEventListener("dragover", e => e.preventDefault());
+window.addEventListener("drop", e => {
+  e.preventDefault();
+  if (!el.upload.contains(e.target)) addFiles(e.dataTransfer.files);
+});
+
+// ── 컨트롤 ─────────────────────────────────────────────────────
 
 el.size.addEventListener("input", () => {
   state.size = Number(el.size.value);
-  // 겹침이 청크 크기보다 크면 무한 루프가 된다. 항상 크기보다 작게 눌러 둔다.
+  // 겹침이 청크 크기보다 크면 앞으로 나아가질 못한다. 항상 크기보다 작게 눌러 둔다.
   if (state.overlap >= state.size) state.overlap = Math.max(0, state.size - 20);
-  persist();
-  render();
+  scheduleRender();
 });
 
 el.overlap.addEventListener("input", () => {
   state.overlap = Math.min(Number(el.overlap.value), state.size - 20);
-  persist();
-  render();
+  scheduleRender();
 });
 
 el.modeGroup.addEventListener("click", e => {
   const b = e.target.closest("button");
   if (!b) return;
   state.mode = b.dataset.mode;
-  persist();
   render();
 });
 
@@ -242,13 +350,8 @@ el.reset.addEventListener("click", () => {
   state.size = RAG_CHUNK_DEFAULTS.size;
   state.overlap = RAG_CHUNK_DEFAULTS.overlap;
   state.mode = RAG_CHUNK_DEFAULTS.mode;
-  persist();
   render();
 });
-
-function persist() {
-  ragSaveSettings(state);
-}
 
 // ── 유틸 ───────────────────────────────────────────────────────
 
